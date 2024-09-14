@@ -4,15 +4,19 @@ import { RouterModule } from '@angular/router';
 import { ReactiveFormsModule } from '@angular/forms';
 
 import { AppComponent } from './app.component';
+import { CommonModule } from '@angular/common'; // Importe o CommonModule
+
 import { TopBarComponent } from './top-bar/top-bar.component';
 import { ProductListComponent } from './product-list/product-list.component';
 import { ProductAlertsComponent } from './product-alerts/product-alerts.component';
 import { ProductDetailsComponent } from './product-details/product-details.component';
+import { CurrencyPipe } from '@angular/common';
 
 @NgModule({
   imports: [
     BrowserModule,
     ReactiveFormsModule,
+    CommonModule, // Adicione o CommonModule ao array de imports
 
     RouterModule.forRoot([
       { path: '', component: ProductListComponent },
@@ -25,6 +29,9 @@ import { ProductDetailsComponent } from './product-details/product-details.compo
     ProductListComponent,
     ProductAlertsComponent
    
+  ],
+  providers: [
+    CurrencyPipe
   ],
   bootstrap: [
     AppComponent
