@@ -8,7 +8,7 @@ import {
   isPlatformServer,
   parseCookieValue,
   setRootDomAdapter
-} from "./chunk-K2YNOWK4.js";
+} from "./chunk-V4LNXL5F.js";
 import {
   APP_BOOTSTRAP_LISTENER,
   APP_ID,
@@ -19,6 +19,7 @@ import {
   ENVIRONMENT_INITIALIZER,
   EnvironmentInjector,
   ErrorHandler,
+  GLOBAL_EVENT_DELEGATION,
   INJECTOR_SCOPE,
   Inject,
   Injectable,
@@ -80,11 +81,13 @@ import {
   unwrapSafeValue,
   whenStable,
   withDomHydration,
+  withEventReplay,
+  withI18nSupport,
   ɵɵdefineInjectable,
   ɵɵdefineInjector,
   ɵɵdefineNgModule,
   ɵɵinject
-} from "./chunk-YVOBCSOD.js";
+} from "./chunk-3V2WW6I2.js";
 
 // node_modules/@angular/common/fesm2022/http.mjs
 var HttpHandler = class {
@@ -785,7 +788,7 @@ var HttpResponseBase = class {
    * The single parameter accepted is an initialization hash. Any properties
    * of the response passed there will override the default values.
    */
-  constructor(init, defaultStatus = HttpStatusCode.Ok, defaultStatusText = "OK") {
+  constructor(init, defaultStatus = 200, defaultStatusText = "OK") {
     this.headers = init.headers || new HttpHeaders();
     this.status = init.status !== void 0 ? init.status : defaultStatus;
     this.statusText = init.statusText || defaultStatusText;
@@ -846,6 +849,8 @@ var HttpErrorResponse = class extends HttpResponseBase {
     this.error = init.error || null;
   }
 };
+var HTTP_STATUS_CODE_OK = 200;
+var HTTP_STATUS_CODE_NO_CONTENT = 204;
 var HttpStatusCode;
 (function(HttpStatusCode2) {
   HttpStatusCode2[HttpStatusCode2["Continue"] = 100] = "Continue";
@@ -1118,8 +1123,8 @@ var _HttpClient = class _HttpClient {
     return this.request("PUT", url, addBody(options, body));
   }
 };
-_HttpClient.ɵfac = function HttpClient_Factory(t) {
-  return new (t || _HttpClient)(ɵɵinject(HttpHandler));
+_HttpClient.ɵfac = function HttpClient_Factory(__ngFactoryType__) {
+  return new (__ngFactoryType__ || _HttpClient)(ɵɵinject(HttpHandler));
 };
 _HttpClient.ɵprov = ɵɵdefineInjectable({
   token: _HttpClient,
@@ -1146,7 +1151,7 @@ var _FetchBackend = class _FetchBackend {
   constructor() {
     this.fetchImpl = inject(FetchFactory, {
       optional: true
-    })?.fetch ?? fetch.bind(globalThis);
+    })?.fetch ?? ((...args) => globalThis.fetch(...args));
     this.ngZone = inject(NgZone);
   }
   handle(request) {
@@ -1163,9 +1168,9 @@ var _FetchBackend = class _FetchBackend {
       const init = this.createRequestInit(request);
       let response;
       try {
-        const fetchPromise = this.fetchImpl(request.urlWithParams, __spreadValues({
+        const fetchPromise = this.ngZone.runOutsideAngular(() => this.fetchImpl(request.urlWithParams, __spreadValues({
           signal
-        }, init));
+        }, init)));
         silenceSuperfluousUnhandledPromiseRejection(fetchPromise);
         observer.next({
           type: HttpEventType.Sent
@@ -1243,7 +1248,7 @@ var _FetchBackend = class _FetchBackend {
         }
       }
       if (status === 0) {
-        status = body ? HttpStatusCode.Ok : 0;
+        status = body ? HTTP_STATUS_CODE_OK : 0;
       }
       const ok = status >= 200 && status < 300;
       if (ok) {
@@ -1285,8 +1290,10 @@ var _FetchBackend = class _FetchBackend {
     const headers = {};
     const credentials = req.withCredentials ? "include" : void 0;
     req.headers.forEach((name, values) => headers[name] = values.join(","));
-    headers["Accept"] ??= "application/json, text/plain, */*";
-    if (!headers["Content-Type"]) {
+    if (!req.headers.has("Accept")) {
+      headers["Accept"] = "application/json, text/plain, */*";
+    }
+    if (!req.headers.has("Content-Type")) {
       const detectedType = req.detectContentTypeHeader();
       if (detectedType !== null) {
         headers["Content-Type"] = detectedType;
@@ -1309,8 +1316,8 @@ var _FetchBackend = class _FetchBackend {
     return chunksAll;
   }
 };
-_FetchBackend.ɵfac = function FetchBackend_Factory(t) {
-  return new (t || _FetchBackend)();
+_FetchBackend.ɵfac = function FetchBackend_Factory(__ngFactoryType__) {
+  return new (__ngFactoryType__ || _FetchBackend)();
 };
 _FetchBackend.ɵprov = ɵɵdefineInjectable({
   token: _FetchBackend,
@@ -1343,7 +1350,10 @@ function chainedInterceptorFn(chainTailFn, interceptorFn, injector) {
 var HTTP_INTERCEPTORS = new InjectionToken(ngDevMode ? "HTTP_INTERCEPTORS" : "");
 var HTTP_INTERCEPTOR_FNS = new InjectionToken(ngDevMode ? "HTTP_INTERCEPTOR_FNS" : "");
 var HTTP_ROOT_INTERCEPTOR_FNS = new InjectionToken(ngDevMode ? "HTTP_ROOT_INTERCEPTOR_FNS" : "");
-var PRIMARY_HTTP_BACKEND = new InjectionToken(ngDevMode ? "PRIMARY_HTTP_BACKEND" : "");
+var REQUESTS_CONTRIBUTE_TO_STABILITY = new InjectionToken(ngDevMode ? "REQUESTS_CONTRIBUTE_TO_STABILITY" : "", {
+  providedIn: "root",
+  factory: () => true
+});
 function legacyInterceptorFnFactory() {
   let chain = null;
   return (req, handler) => {
@@ -1354,8 +1364,13 @@ function legacyInterceptorFnFactory() {
       chain = interceptors.reduceRight(adaptLegacyInterceptorToChain, interceptorChainEndFn);
     }
     const pendingTasks = inject(PendingTasks);
-    const taskId = pendingTasks.add();
-    return chain(req, handler).pipe(finalize(() => pendingTasks.remove(taskId)));
+    const contributeToStability = inject(REQUESTS_CONTRIBUTE_TO_STABILITY);
+    if (contributeToStability) {
+      const taskId = pendingTasks.add();
+      return chain(req, handler).pipe(finalize(() => pendingTasks.remove(taskId)));
+    } else {
+      return chain(req, handler);
+    }
   };
 }
 var fetchBackendWarningDisplayed = false;
@@ -1366,10 +1381,7 @@ var _HttpInterceptorHandler = class _HttpInterceptorHandler extends HttpHandler 
     this.injector = injector;
     this.chain = null;
     this.pendingTasks = inject(PendingTasks);
-    const primaryHttpBackend = inject(PRIMARY_HTTP_BACKEND, {
-      optional: true
-    });
-    this.backend = primaryHttpBackend ?? backend;
+    this.contributeToStability = inject(REQUESTS_CONTRIBUTE_TO_STABILITY);
     if ((typeof ngDevMode === "undefined" || ngDevMode) && !fetchBackendWarningDisplayed) {
       const isServer = isPlatformServer(injector.get(PLATFORM_ID));
       if (isServer && !(this.backend instanceof FetchBackend)) {
@@ -1383,12 +1395,16 @@ var _HttpInterceptorHandler = class _HttpInterceptorHandler extends HttpHandler 
       const dedupedInterceptorFns = Array.from(/* @__PURE__ */ new Set([...this.injector.get(HTTP_INTERCEPTOR_FNS), ...this.injector.get(HTTP_ROOT_INTERCEPTOR_FNS, [])]));
       this.chain = dedupedInterceptorFns.reduceRight((nextSequencedFn, interceptorFn) => chainedInterceptorFn(nextSequencedFn, interceptorFn, this.injector), interceptorChainEndFn);
     }
-    const taskId = this.pendingTasks.add();
-    return this.chain(initialRequest, (downstreamRequest) => this.backend.handle(downstreamRequest)).pipe(finalize(() => this.pendingTasks.remove(taskId)));
+    if (this.contributeToStability) {
+      const taskId = this.pendingTasks.add();
+      return this.chain(initialRequest, (downstreamRequest) => this.backend.handle(downstreamRequest)).pipe(finalize(() => this.pendingTasks.remove(taskId)));
+    } else {
+      return this.chain(initialRequest, (downstreamRequest) => this.backend.handle(downstreamRequest));
+    }
   }
 };
-_HttpInterceptorHandler.ɵfac = function HttpInterceptorHandler_Factory(t) {
-  return new (t || _HttpInterceptorHandler)(ɵɵinject(HttpBackend), ɵɵinject(EnvironmentInjector));
+_HttpInterceptorHandler.ɵfac = function HttpInterceptorHandler_Factory(__ngFactoryType__) {
+  return new (__ngFactoryType__ || _HttpInterceptorHandler)(ɵɵinject(HttpBackend), ɵɵinject(EnvironmentInjector));
 };
 _HttpInterceptorHandler.ɵprov = ɵɵdefineInjectable({
   token: _HttpInterceptorHandler,
@@ -1458,9 +1474,7 @@ var _JsonpClientBackend = class _JsonpClientBackend {
         finished = true;
       };
       const cleanup = () => {
-        if (node.parentNode) {
-          node.parentNode.removeChild(node);
-        }
+        node.remove();
         delete this.callbackMap[callback];
       };
       const onLoad = (event) => {
@@ -1477,7 +1491,7 @@ var _JsonpClientBackend = class _JsonpClientBackend {
           }
           observer.next(new HttpResponse({
             body,
-            status: HttpStatusCode.Ok,
+            status: HTTP_STATUS_CODE_OK,
             statusText: "OK",
             url
           }));
@@ -1512,8 +1526,8 @@ var _JsonpClientBackend = class _JsonpClientBackend {
     foreignDocument.adoptNode(script);
   }
 };
-_JsonpClientBackend.ɵfac = function JsonpClientBackend_Factory(t) {
-  return new (t || _JsonpClientBackend)(ɵɵinject(JsonpCallbackContext), ɵɵinject(DOCUMENT));
+_JsonpClientBackend.ɵfac = function JsonpClientBackend_Factory(__ngFactoryType__) {
+  return new (__ngFactoryType__ || _JsonpClientBackend)(ɵɵinject(JsonpCallbackContext), ɵɵinject(DOCUMENT));
 };
 _JsonpClientBackend.ɵprov = ɵɵdefineInjectable({
   token: _JsonpClientBackend,
@@ -1554,8 +1568,8 @@ var _JsonpInterceptor = class _JsonpInterceptor {
     return runInInjectionContext(this.injector, () => jsonpInterceptorFn(initialRequest, (downstreamRequest) => next.handle(downstreamRequest)));
   }
 };
-_JsonpInterceptor.ɵfac = function JsonpInterceptor_Factory(t) {
-  return new (t || _JsonpInterceptor)(ɵɵinject(EnvironmentInjector));
+_JsonpInterceptor.ɵfac = function JsonpInterceptor_Factory(__ngFactoryType__) {
+  return new (__ngFactoryType__ || _JsonpInterceptor)(ɵɵinject(EnvironmentInjector));
 };
 _JsonpInterceptor.ɵprov = ɵɵdefineInjectable({
   token: _JsonpInterceptor,
@@ -1640,11 +1654,11 @@ var _HttpXhrBackend = class _HttpXhrBackend {
             url
           } = partialFromXhr();
           let body = null;
-          if (status !== HttpStatusCode.NoContent) {
+          if (status !== HTTP_STATUS_CODE_NO_CONTENT) {
             body = typeof xhr.response === "undefined" ? xhr.responseText : xhr.response;
           }
           if (status === 0) {
-            status = !!body ? HttpStatusCode.Ok : 0;
+            status = !!body ? HTTP_STATUS_CODE_OK : 0;
           }
           let ok = status >= 200 && status < 300;
           if (req.responseType === "json" && typeof body === "string") {
@@ -1756,8 +1770,8 @@ var _HttpXhrBackend = class _HttpXhrBackend {
     }));
   }
 };
-_HttpXhrBackend.ɵfac = function HttpXhrBackend_Factory(t) {
-  return new (t || _HttpXhrBackend)(ɵɵinject(XhrFactory));
+_HttpXhrBackend.ɵfac = function HttpXhrBackend_Factory(__ngFactoryType__) {
+  return new (__ngFactoryType__ || _HttpXhrBackend)(ɵɵinject(XhrFactory));
 };
 _HttpXhrBackend.ɵprov = ɵɵdefineInjectable({
   token: _HttpXhrBackend,
@@ -1806,8 +1820,8 @@ var _HttpXsrfCookieExtractor = class _HttpXsrfCookieExtractor {
     return this.lastToken;
   }
 };
-_HttpXsrfCookieExtractor.ɵfac = function HttpXsrfCookieExtractor_Factory(t) {
-  return new (t || _HttpXsrfCookieExtractor)(ɵɵinject(DOCUMENT), ɵɵinject(PLATFORM_ID), ɵɵinject(XSRF_COOKIE_NAME));
+_HttpXsrfCookieExtractor.ɵfac = function HttpXsrfCookieExtractor_Factory(__ngFactoryType__) {
+  return new (__ngFactoryType__ || _HttpXsrfCookieExtractor)(ɵɵinject(DOCUMENT), ɵɵinject(PLATFORM_ID), ɵɵinject(XSRF_COOKIE_NAME));
 };
 _HttpXsrfCookieExtractor.ɵprov = ɵɵdefineInjectable({
   token: _HttpXsrfCookieExtractor,
@@ -1859,8 +1873,8 @@ var _HttpXsrfInterceptor = class _HttpXsrfInterceptor {
     return runInInjectionContext(this.injector, () => xsrfInterceptorFn(initialRequest, (downstreamRequest) => next.handle(downstreamRequest)));
   }
 };
-_HttpXsrfInterceptor.ɵfac = function HttpXsrfInterceptor_Factory(t) {
-  return new (t || _HttpXsrfInterceptor)(ɵɵinject(EnvironmentInjector));
+_HttpXsrfInterceptor.ɵfac = function HttpXsrfInterceptor_Factory(__ngFactoryType__) {
+  return new (__ngFactoryType__ || _HttpXsrfInterceptor)(ɵɵinject(EnvironmentInjector));
 };
 _HttpXsrfInterceptor.ɵprov = ɵɵdefineInjectable({
   token: _HttpXsrfInterceptor,
@@ -1902,7 +1916,11 @@ function provideHttpClient(...features) {
     useExisting: HttpInterceptorHandler
   }, {
     provide: HttpBackend,
-    useExisting: HttpXhrBackend
+    useFactory: () => {
+      return inject(FetchBackend, {
+        optional: true
+      }) ?? inject(HttpXhrBackend);
+    }
   }, {
     provide: HTTP_INTERCEPTOR_FNS,
     useValue: xsrfInterceptorFn,
@@ -1990,8 +2008,8 @@ var _HttpClientXsrfModule = class _HttpClientXsrfModule {
     };
   }
 };
-_HttpClientXsrfModule.ɵfac = function HttpClientXsrfModule_Factory(t) {
-  return new (t || _HttpClientXsrfModule)();
+_HttpClientXsrfModule.ɵfac = function HttpClientXsrfModule_Factory(__ngFactoryType__) {
+  return new (__ngFactoryType__ || _HttpClientXsrfModule)();
 };
 _HttpClientXsrfModule.ɵmod = ɵɵdefineNgModule({
   type: _HttpClientXsrfModule
@@ -2036,8 +2054,8 @@ var HttpClientXsrfModule = _HttpClientXsrfModule;
 })();
 var _HttpClientModule = class _HttpClientModule {
 };
-_HttpClientModule.ɵfac = function HttpClientModule_Factory(t) {
-  return new (t || _HttpClientModule)();
+_HttpClientModule.ɵfac = function HttpClientModule_Factory(__ngFactoryType__) {
+  return new (__ngFactoryType__ || _HttpClientModule)();
 };
 _HttpClientModule.ɵmod = ɵɵdefineNgModule({
   type: _HttpClientModule
@@ -2051,7 +2069,7 @@ var HttpClientModule = _HttpClientModule;
     type: NgModule,
     args: [{
       /**
-       * Configures the [dependency injector](guide/glossary#injector) where it is imported
+       * Configures the dependency injector where it is imported
        * with supporting services for HTTP communications.
        */
       providers: [provideHttpClient(withInterceptorsFromDi())]
@@ -2060,8 +2078,8 @@ var HttpClientModule = _HttpClientModule;
 })();
 var _HttpClientJsonpModule = class _HttpClientJsonpModule {
 };
-_HttpClientJsonpModule.ɵfac = function HttpClientJsonpModule_Factory(t) {
-  return new (t || _HttpClientJsonpModule)();
+_HttpClientJsonpModule.ɵfac = function HttpClientJsonpModule_Factory(__ngFactoryType__) {
+  return new (__ngFactoryType__ || _HttpClientJsonpModule)();
 };
 _HttpClientJsonpModule.ɵmod = ɵɵdefineNgModule({
   type: _HttpClientJsonpModule
@@ -2078,11 +2096,12 @@ var HttpClientJsonpModule = _HttpClientJsonpModule;
     }]
   }], null, null);
 })();
+var HTTP_TRANSFER_CACHE_ORIGIN_MAP = new InjectionToken(ngDevMode ? "HTTP_TRANSFER_CACHE_ORIGIN_MAP" : "");
 var BODY = "b";
 var HEADERS = "h";
 var STATUS = "s";
 var STATUS_TEXT = "st";
-var URL2 = "u";
+var REQ_URL = "u";
 var RESPONSE_TYPE = "rt";
 var CACHE_OPTIONS = new InjectionToken(ngDevMode ? "HTTP_TRANSFER_STATE_CACHE_OPTIONS" : "");
 var ALLOWED_METHODS = ["GET", "HEAD"];
@@ -2096,13 +2115,21 @@ function transferCacheInterceptorFn(req, next) {
     transferCache: requestOptions,
     method: requestMethod
   } = req;
-  if (!isCacheActive || // POST requests are allowed either globally or at request level
-  requestMethod === "POST" && !globalOptions.includePostRequests && !requestOptions || requestMethod !== "POST" && !ALLOWED_METHODS.includes(requestMethod) || requestOptions === false || //
-  globalOptions.filter?.(req) === false) {
+  if (!isCacheActive || requestOptions === false || // POST requests are allowed either globally or at request level
+  requestMethod === "POST" && !globalOptions.includePostRequests && !requestOptions || requestMethod !== "POST" && !ALLOWED_METHODS.includes(requestMethod) || // Do not cache request that require authorization when includeRequestsWithAuthHeaders is falsey
+  !globalOptions.includeRequestsWithAuthHeaders && hasAuthHeaders(req) || globalOptions.filter?.(req) === false) {
     return next(req);
   }
   const transferState = inject(TransferState);
-  const storeKey = makeCacheKey(req);
+  const originMap = inject(HTTP_TRANSFER_CACHE_ORIGIN_MAP, {
+    optional: true
+  });
+  const isServer = isPlatformServer(inject(PLATFORM_ID));
+  if (originMap && !isServer) {
+    throw new RuntimeError(2803, ngDevMode && "Angular detected that the `HTTP_TRANSFER_CACHE_ORIGIN_MAP` token is configured and present in the client side code. Please ensure that this token is only provided in the server code of the application.");
+  }
+  const requestUrl = isServer && originMap ? mapRequestOriginUrl(req.url, originMap) : req.url;
+  const storeKey = makeCacheKey(req, requestUrl);
   const response = transferState.get(storeKey, null);
   let headersToInclude = globalOptions.includeHeaders;
   if (typeof requestOptions === "object" && requestOptions.includeHeaders) {
@@ -2115,7 +2142,7 @@ function transferCacheInterceptorFn(req, next) {
       [HEADERS]: httpHeaders,
       [STATUS]: status,
       [STATUS_TEXT]: statusText,
-      [URL2]: url
+      [REQ_URL]: url
     } = response;
     let body = undecodedBody;
     switch (responseType) {
@@ -2138,7 +2165,6 @@ function transferCacheInterceptorFn(req, next) {
       url
     }));
   }
-  const isServer = isPlatformServer(inject(PLATFORM_ID));
   return next(req).pipe(tap((event) => {
     if (event instanceof HttpResponse && isServer) {
       transferState.set(storeKey, {
@@ -2146,11 +2172,14 @@ function transferCacheInterceptorFn(req, next) {
         [HEADERS]: getFilteredHeaders(event.headers, headersToInclude),
         [STATUS]: event.status,
         [STATUS_TEXT]: event.statusText,
-        [URL2]: event.url || "",
+        [REQ_URL]: requestUrl,
         [RESPONSE_TYPE]: req.responseType
       });
     }
   }));
+}
+function hasAuthHeaders(req) {
+  return req.headers.has("authorization") || req.headers.has("proxy-authorization");
 }
 function getFilteredHeaders(headers, includeHeaders) {
   if (!includeHeaders) {
@@ -2168,12 +2197,11 @@ function getFilteredHeaders(headers, includeHeaders) {
 function sortAndConcatParams(params) {
   return [...params.keys()].sort().map((k) => `${k}=${params.getAll(k)}`).join("&");
 }
-function makeCacheKey(request) {
+function makeCacheKey(request, mappedRequestUrl) {
   const {
     params,
     method,
-    responseType,
-    url
+    responseType
   } = request;
   const encodedParams = sortAndConcatParams(params);
   let serializedBody = request.serializeBody();
@@ -2182,7 +2210,7 @@ function makeCacheKey(request) {
   } else if (typeof serializedBody !== "string") {
     serializedBody = "";
   }
-  const key = [method, responseType, url, serializedBody, encodedParams].join("|");
+  const key = [method, responseType, mappedRequestUrl, serializedBody, encodedParams].join("|");
   const hash = generateHash(key);
   return makeStateKey(hash);
 }
@@ -2243,6 +2271,22 @@ function appendMissingHeadersDetection(url, headers, headersToInclude) {
     }
   });
 }
+function mapRequestOriginUrl(url, originMap) {
+  const origin = new URL(url, "resolve://").origin;
+  const mappedOrigin = originMap[origin];
+  if (!mappedOrigin) {
+    return url;
+  }
+  if (typeof ngDevMode === "undefined" || ngDevMode) {
+    verifyMappedOrigin(mappedOrigin);
+  }
+  return url.replace(origin, mappedOrigin);
+}
+function verifyMappedOrigin(url) {
+  if (new URL(url, "resolve://").pathname !== "/") {
+    throw new RuntimeError(2804, `Angular detected a URL with a path segment in the value provided for the \`HTTP_TRANSFER_CACHE_ORIGIN_MAP\` token: ${url}. The map should only contain origins without any other segments.`);
+  }
+}
 
 // node_modules/@angular/platform-browser/fesm2022/platform-browser.mjs
 var GenericBrowserDomAdapter = class extends DomAdapter {
@@ -2265,9 +2309,7 @@ var BrowserDomAdapter = class _BrowserDomAdapter extends GenericBrowserDomAdapte
     el.dispatchEvent(evt);
   }
   remove(node) {
-    if (node.parentNode) {
-      node.parentNode.removeChild(node);
-    }
+    node.remove();
   }
   createElement(tagName, doc) {
     doc = doc || this.getDefaultDocument();
@@ -2370,8 +2412,8 @@ var _BrowserXhr = class _BrowserXhr {
     return new XMLHttpRequest();
   }
 };
-_BrowserXhr.ɵfac = function BrowserXhr_Factory(t) {
-  return new (t || _BrowserXhr)();
+_BrowserXhr.ɵfac = function BrowserXhr_Factory(__ngFactoryType__) {
+  return new (__ngFactoryType__ || _BrowserXhr)();
 };
 _BrowserXhr.ɵprov = ɵɵdefineInjectable({
   token: _BrowserXhr,
@@ -2430,8 +2472,8 @@ var _EventManager = class _EventManager {
     return plugin;
   }
 };
-_EventManager.ɵfac = function EventManager_Factory(t) {
-  return new (t || _EventManager)(ɵɵinject(EVENT_MANAGER_PLUGINS), ɵɵinject(NgZone));
+_EventManager.ɵfac = function EventManager_Factory(__ngFactoryType__) {
+  return new (__ngFactoryType__ || _EventManager)(ɵɵinject(EVENT_MANAGER_PLUGINS), ɵɵinject(NgZone));
 };
 _EventManager.ɵprov = ɵɵdefineInjectable({
   token: _EventManager,
@@ -2587,8 +2629,8 @@ var _SharedStylesHost = class _SharedStylesHost {
     hostNodes.add(this.doc.head);
   }
 };
-_SharedStylesHost.ɵfac = function SharedStylesHost_Factory(t) {
-  return new (t || _SharedStylesHost)(ɵɵinject(DOCUMENT), ɵɵinject(APP_ID), ɵɵinject(CSP_NONCE, 8), ɵɵinject(PLATFORM_ID));
+_SharedStylesHost.ɵfac = function SharedStylesHost_Factory(__ngFactoryType__) {
+  return new (__ngFactoryType__ || _SharedStylesHost)(ɵɵinject(DOCUMENT), ɵɵinject(APP_ID), ɵɵinject(CSP_NONCE, 8), ɵɵinject(PLATFORM_ID));
 };
 _SharedStylesHost.ɵprov = ɵɵdefineInjectable({
   token: _SharedStylesHost,
@@ -2632,7 +2674,7 @@ var NAMESPACE_URIS = {
   "xlink": "http://www.w3.org/1999/xlink",
   "xml": "http://www.w3.org/XML/1998/namespace",
   "xmlns": "http://www.w3.org/2000/xmlns/",
-  "math": "http://www.w3.org/1998/MathML/"
+  "math": "http://www.w3.org/1998/Math/MathML"
 };
 var COMPONENT_REGEX = /%COMP%/g;
 var COMPONENT_VARIABLE = "%COMP%";
@@ -2711,8 +2753,8 @@ var _DomRendererFactory2 = class _DomRendererFactory2 {
     this.rendererByCompId.clear();
   }
 };
-_DomRendererFactory2.ɵfac = function DomRendererFactory2_Factory(t) {
-  return new (t || _DomRendererFactory2)(ɵɵinject(EventManager), ɵɵinject(SharedStylesHost), ɵɵinject(APP_ID), ɵɵinject(REMOVE_STYLES_ON_COMPONENT_DESTROY), ɵɵinject(DOCUMENT), ɵɵinject(PLATFORM_ID), ɵɵinject(NgZone), ɵɵinject(CSP_NONCE));
+_DomRendererFactory2.ɵfac = function DomRendererFactory2_Factory(__ngFactoryType__) {
+  return new (__ngFactoryType__ || _DomRendererFactory2)(ɵɵinject(EventManager), ɵɵinject(SharedStylesHost), ɵɵinject(APP_ID), ɵɵinject(REMOVE_STYLES_ON_COMPONENT_DESTROY), ɵɵinject(DOCUMENT), ɵɵinject(PLATFORM_ID), ɵɵinject(NgZone), ɵɵinject(CSP_NONCE));
 };
 _DomRendererFactory2.ɵprov = ɵɵdefineInjectable({
   token: _DomRendererFactory2,
@@ -2794,10 +2836,8 @@ var DefaultDomRenderer2 = class {
       targetParent.insertBefore(newChild, refChild);
     }
   }
-  removeChild(parent, oldChild) {
-    if (parent) {
-      parent.removeChild(oldChild);
-    }
+  removeChild(_parent, oldChild) {
+    oldChild.remove();
   }
   selectRootElement(selectorOrNode, preserveContent) {
     let el = typeof selectorOrNode === "string" ? this.doc.querySelector(selectorOrNode) : selectorOrNode;
@@ -2932,8 +2972,8 @@ var ShadowDomRenderer = class extends DefaultDomRenderer2 {
   insertBefore(parent, newChild, refChild) {
     return super.insertBefore(this.nodeOrShadowRoot(parent), newChild, refChild);
   }
-  removeChild(parent, oldChild) {
-    return super.removeChild(this.nodeOrShadowRoot(parent), oldChild);
+  removeChild(_parent, oldChild) {
+    return super.removeChild(null, oldChild);
   }
   parentNode(node) {
     return this.nodeOrShadowRoot(super.parentNode(this.nodeOrShadowRoot(node)));
@@ -2993,8 +3033,8 @@ var _DomEventsPlugin = class _DomEventsPlugin extends EventManagerPlugin {
     return target.removeEventListener(eventName, callback);
   }
 };
-_DomEventsPlugin.ɵfac = function DomEventsPlugin_Factory(t) {
-  return new (t || _DomEventsPlugin)(ɵɵinject(DOCUMENT));
+_DomEventsPlugin.ɵfac = function DomEventsPlugin_Factory(__ngFactoryType__) {
+  return new (__ngFactoryType__ || _DomEventsPlugin)(ɵɵinject(DOCUMENT));
 };
 _DomEventsPlugin.ɵprov = ɵɵdefineInjectable({
   token: _DomEventsPlugin,
@@ -3003,6 +3043,42 @@ _DomEventsPlugin.ɵprov = ɵɵdefineInjectable({
 var DomEventsPlugin = _DomEventsPlugin;
 (() => {
   (typeof ngDevMode === "undefined" || ngDevMode) && setClassMetadata(DomEventsPlugin, [{
+    type: Injectable
+  }], () => [{
+    type: void 0,
+    decorators: [{
+      type: Inject,
+      args: [DOCUMENT]
+    }]
+  }], null);
+})();
+var _EventDelegationPlugin = class _EventDelegationPlugin extends EventManagerPlugin {
+  constructor(doc) {
+    super(doc);
+    this.delegate = inject(GLOBAL_EVENT_DELEGATION, {
+      optional: true
+    });
+  }
+  supports(eventName) {
+    return this.delegate ? this.delegate.supports(eventName) : false;
+  }
+  addEventListener(element, eventName, handler) {
+    return this.delegate.addEventListener(element, eventName, handler);
+  }
+  removeEventListener(element, eventName, callback) {
+    return this.delegate.removeEventListener(element, eventName, callback);
+  }
+};
+_EventDelegationPlugin.ɵfac = function EventDelegationPlugin_Factory(__ngFactoryType__) {
+  return new (__ngFactoryType__ || _EventDelegationPlugin)(ɵɵinject(DOCUMENT));
+};
+_EventDelegationPlugin.ɵprov = ɵɵdefineInjectable({
+  token: _EventDelegationPlugin,
+  factory: _EventDelegationPlugin.ɵfac
+});
+var EventDelegationPlugin = _EventDelegationPlugin;
+(() => {
+  (typeof ngDevMode === "undefined" || ngDevMode) && setClassMetadata(EventDelegationPlugin, [{
     type: Injectable
   }], () => [{
     type: void 0,
@@ -3120,8 +3196,7 @@ var _KeyEventsPlugin = class _KeyEventsPlugin extends EventManagerPlugin {
       keycode = event.code;
       key = "code.";
     }
-    if (keycode == null || !keycode)
-      return false;
+    if (keycode == null || !keycode) return false;
     keycode = keycode.toLowerCase();
     if (keycode === " ") {
       keycode = "space";
@@ -3158,8 +3233,8 @@ var _KeyEventsPlugin = class _KeyEventsPlugin extends EventManagerPlugin {
     return keyName === "esc" ? "escape" : keyName;
   }
 };
-_KeyEventsPlugin.ɵfac = function KeyEventsPlugin_Factory(t) {
-  return new (t || _KeyEventsPlugin)(ɵɵinject(DOCUMENT));
+_KeyEventsPlugin.ɵfac = function KeyEventsPlugin_Factory(__ngFactoryType__) {
+  return new (__ngFactoryType__ || _KeyEventsPlugin)(ɵɵinject(DOCUMENT));
 };
 _KeyEventsPlugin.ɵprov = ɵɵdefineInjectable({
   token: _KeyEventsPlugin,
@@ -3249,6 +3324,10 @@ var BROWSER_MODULE_PROVIDERS = [{
   useClass: KeyEventsPlugin,
   multi: true,
   deps: [DOCUMENT]
+}, {
+  provide: EVENT_MANAGER_PLUGINS,
+  useClass: EventDelegationPlugin,
+  multi: true
 }, DomRendererFactory2, SharedStylesHost, EventManager, {
   provide: RendererFactory2,
   useExisting: DomRendererFactory2
@@ -3286,8 +3365,8 @@ var _BrowserModule = class _BrowserModule {
     };
   }
 };
-_BrowserModule.ɵfac = function BrowserModule_Factory(t) {
-  return new (t || _BrowserModule)(ɵɵinject(BROWSER_MODULE_PROVIDERS_MARKER, 12));
+_BrowserModule.ɵfac = function BrowserModule_Factory(__ngFactoryType__) {
+  return new (__ngFactoryType__ || _BrowserModule)(ɵɵinject(BROWSER_MODULE_PROVIDERS_MARKER, 12));
 };
 _BrowserModule.ɵmod = ɵɵdefineNgModule({
   type: _BrowserModule,
@@ -3333,8 +3412,7 @@ var _Meta = class _Meta {
    * the new element if no match is found, or `null` if the tag parameter is not defined.
    */
   addTag(tag, forceCreation = false) {
-    if (!tag)
-      return null;
+    if (!tag) return null;
     return this._getOrCreateElement(tag, forceCreation);
   }
   /**
@@ -3346,8 +3424,7 @@ var _Meta = class _Meta {
    * @returns The matching elements if found, or the new elements.
    */
   addTags(tags, forceCreation = false) {
-    if (!tags)
-      return [];
+    if (!tags) return [];
     return tags.reduce((result, tag) => {
       if (tag) {
         result.push(this._getOrCreateElement(tag, forceCreation));
@@ -3362,8 +3439,7 @@ var _Meta = class _Meta {
    * @returns The matching element, if any.
    */
   getTag(attrSelector) {
-    if (!attrSelector)
-      return null;
+    if (!attrSelector) return null;
     return this._doc.querySelector(`meta[${attrSelector}]`) || null;
   }
   /**
@@ -3373,8 +3449,7 @@ var _Meta = class _Meta {
    * @returns The matching elements, if any.
    */
   getTags(attrSelector) {
-    if (!attrSelector)
-      return [];
+    if (!attrSelector) return [];
     const list = this._doc.querySelectorAll(`meta[${attrSelector}]`);
     return list ? [].slice.call(list) : [];
   }
@@ -3388,8 +3463,7 @@ var _Meta = class _Meta {
    * @return The modified element.
    */
   updateTag(tag, selector) {
-    if (!tag)
-      return null;
+    if (!tag) return null;
     selector = selector || this._parseSelector(tag);
     const meta = this.getTag(selector);
     if (meta) {
@@ -3418,8 +3492,7 @@ var _Meta = class _Meta {
     if (!forceCreation) {
       const selector = this._parseSelector(meta);
       const elem = this.getTags(selector).filter((elem2) => this._containsAttributes(meta, elem2))[0];
-      if (elem !== void 0)
-        return elem;
+      if (elem !== void 0) return elem;
     }
     const element = this._dom.createElement("meta");
     this._setMetaElementAttributes(meta, element);
@@ -3442,8 +3515,8 @@ var _Meta = class _Meta {
     return META_KEYS_MAP[prop] || prop;
   }
 };
-_Meta.ɵfac = function Meta_Factory(t) {
-  return new (t || _Meta)(ɵɵinject(DOCUMENT));
+_Meta.ɵfac = function Meta_Factory(__ngFactoryType__) {
+  return new (__ngFactoryType__ || _Meta)(ɵɵinject(DOCUMENT));
 };
 _Meta.ɵprov = ɵɵdefineInjectable({
   token: _Meta,
@@ -3486,8 +3559,8 @@ var _Title = class _Title {
     this._doc.title = newTitle || "";
   }
 };
-_Title.ɵfac = function Title_Factory(t) {
-  return new (t || _Title)(ɵɵinject(DOCUMENT));
+_Title.ɵfac = function Title_Factory(__ngFactoryType__) {
+  return new (__ngFactoryType__ || _Title)(ɵɵinject(DOCUMENT));
 };
 _Title.ɵprov = ɵɵdefineInjectable({
   token: _Title,
@@ -3680,8 +3753,8 @@ var _HammerGestureConfig = class _HammerGestureConfig {
     return mc;
   }
 };
-_HammerGestureConfig.ɵfac = function HammerGestureConfig_Factory(t) {
-  return new (t || _HammerGestureConfig)();
+_HammerGestureConfig.ɵfac = function HammerGestureConfig_Factory(__ngFactoryType__) {
+  return new (__ngFactoryType__ || _HammerGestureConfig)();
 };
 _HammerGestureConfig.ɵprov = ɵɵdefineInjectable({
   token: _HammerGestureConfig,
@@ -3765,8 +3838,8 @@ var _HammerGesturesPlugin = class _HammerGesturesPlugin extends EventManagerPlug
     return this._config.events.indexOf(eventName) > -1;
   }
 };
-_HammerGesturesPlugin.ɵfac = function HammerGesturesPlugin_Factory(t) {
-  return new (t || _HammerGesturesPlugin)(ɵɵinject(DOCUMENT), ɵɵinject(HAMMER_GESTURE_CONFIG), ɵɵinject(Console), ɵɵinject(HAMMER_LOADER, 8));
+_HammerGesturesPlugin.ɵfac = function HammerGesturesPlugin_Factory(__ngFactoryType__) {
+  return new (__ngFactoryType__ || _HammerGesturesPlugin)(ɵɵinject(DOCUMENT), ɵɵinject(HAMMER_GESTURE_CONFIG), ɵɵinject(Console), ɵɵinject(HAMMER_LOADER, 8));
 };
 _HammerGesturesPlugin.ɵprov = ɵɵdefineInjectable({
   token: _HammerGesturesPlugin,
@@ -3802,8 +3875,8 @@ var HammerGesturesPlugin = _HammerGesturesPlugin;
 })();
 var _HammerModule = class _HammerModule {
 };
-_HammerModule.ɵfac = function HammerModule_Factory(t) {
-  return new (t || _HammerModule)();
+_HammerModule.ɵfac = function HammerModule_Factory(__ngFactoryType__) {
+  return new (__ngFactoryType__ || _HammerModule)();
 };
 _HammerModule.ɵmod = ɵɵdefineNgModule({
   type: _HammerModule
@@ -3840,19 +3913,19 @@ var HammerModule = _HammerModule;
 })();
 var _DomSanitizer = class _DomSanitizer {
 };
-_DomSanitizer.ɵfac = function DomSanitizer_Factory(t) {
-  return new (t || _DomSanitizer)();
+_DomSanitizer.ɵfac = function DomSanitizer_Factory(__ngFactoryType__) {
+  return new (__ngFactoryType__ || _DomSanitizer)();
 };
 _DomSanitizer.ɵprov = ɵɵdefineInjectable({
   token: _DomSanitizer,
-  factory: function DomSanitizer_Factory(t) {
-    let r = null;
-    if (t) {
-      r = new (t || _DomSanitizer)();
+  factory: function DomSanitizer_Factory(__ngFactoryType__) {
+    let __ngConditionalFactory__ = null;
+    if (__ngFactoryType__) {
+      __ngConditionalFactory__ = new (__ngFactoryType__ || _DomSanitizer)();
     } else {
-      r = ɵɵinject(DomSanitizerImpl);
+      __ngConditionalFactory__ = ɵɵinject(DomSanitizerImpl);
     }
-    return r;
+    return __ngConditionalFactory__;
   },
   providedIn: "root"
 });
@@ -3872,8 +3945,7 @@ var _DomSanitizerImpl = class _DomSanitizerImpl extends DomSanitizer {
     this._doc = _doc;
   }
   sanitize(ctx, value) {
-    if (value == null)
-      return null;
+    if (value == null) return null;
     switch (ctx) {
       case SecurityContext.NONE:
         return value;
@@ -3942,8 +4014,8 @@ var _DomSanitizerImpl = class _DomSanitizerImpl extends DomSanitizer {
     return bypassSanitizationTrustResourceUrl(value);
   }
 };
-_DomSanitizerImpl.ɵfac = function DomSanitizerImpl_Factory(t) {
-  return new (t || _DomSanitizerImpl)(ɵɵinject(DOCUMENT));
+_DomSanitizerImpl.ɵfac = function DomSanitizerImpl_Factory(__ngFactoryType__) {
+  return new (__ngFactoryType__ || _DomSanitizerImpl)(ɵɵinject(DOCUMENT));
 };
 _DomSanitizerImpl.ɵprov = ɵɵdefineInjectable({
   token: _DomSanitizerImpl,
@@ -3969,6 +4041,8 @@ var HydrationFeatureKind;
 (function(HydrationFeatureKind2) {
   HydrationFeatureKind2[HydrationFeatureKind2["NoHttpTransferCache"] = 0] = "NoHttpTransferCache";
   HydrationFeatureKind2[HydrationFeatureKind2["HttpTransferCacheOptions"] = 1] = "HttpTransferCacheOptions";
+  HydrationFeatureKind2[HydrationFeatureKind2["I18nSupport"] = 2] = "I18nSupport";
+  HydrationFeatureKind2[HydrationFeatureKind2["EventReplay"] = 3] = "EventReplay";
 })(HydrationFeatureKind || (HydrationFeatureKind = {}));
 function hydrationFeature(ɵkind, ɵproviders = [], ɵoptions = {}) {
   return {
@@ -3981,6 +4055,12 @@ function withNoHttpTransferCache() {
 }
 function withHttpTransferCacheOptions(options) {
   return hydrationFeature(HydrationFeatureKind.HttpTransferCacheOptions, withHttpTransferCache(options));
+}
+function withI18nSupport2() {
+  return hydrationFeature(HydrationFeatureKind.I18nSupport, withI18nSupport());
+}
+function withEventReplay2() {
+  return hydrationFeature(HydrationFeatureKind.EventReplay, withEventReplay());
 }
 function provideZoneJsCompatibilityDetector() {
   return [{
@@ -4014,9 +4094,7 @@ function provideClientHydration(...features) {
   }
   return makeEnvironmentProviders([typeof ngDevMode !== "undefined" && ngDevMode ? provideZoneJsCompatibilityDetector() : [], withDomHydration(), featuresKind.has(HydrationFeatureKind.NoHttpTransferCache) || hasHttpTransferCacheOptions ? [] : withHttpTransferCache({}), providers]);
 }
-var VERSION = new Version("17.3.12");
-var makeStateKey2 = makeStateKey;
-var TransferState2 = TransferState;
+var VERSION = new Version("18.2.4");
 
 export {
   BrowserDomAdapter,
@@ -4051,25 +4129,25 @@ export {
   HydrationFeatureKind,
   withNoHttpTransferCache,
   withHttpTransferCacheOptions,
+  withI18nSupport2 as withI18nSupport,
+  withEventReplay2 as withEventReplay,
   provideClientHydration,
-  VERSION,
-  makeStateKey2 as makeStateKey,
-  TransferState2 as TransferState
+  VERSION
 };
 /*! Bundled license information:
 
 @angular/common/fesm2022/http.mjs:
   (**
-   * @license Angular v17.3.12
+   * @license Angular v18.2.4
    * (c) 2010-2024 Google LLC. https://angular.io/
    * License: MIT
    *)
 
 @angular/platform-browser/fesm2022/platform-browser.mjs:
   (**
-   * @license Angular v17.3.12
+   * @license Angular v18.2.4
    * (c) 2010-2024 Google LLC. https://angular.io/
    * License: MIT
    *)
 */
-//# sourceMappingURL=chunk-ZF4T6UDY.js.map
+//# sourceMappingURL=chunk-IO5JZPYI.js.map
